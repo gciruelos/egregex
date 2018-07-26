@@ -7,6 +7,7 @@ import Data.Function (on)
 import Data.List (elemIndex, group, intersect, intersperse, nub, partition, sort, (\\))
 import Data.Char (isAscii, isPrint)
 import Data.Either (fromRight, isRight, lefts, rights)
+import Data.Maybe (fromMaybe)
 
 data Term = Literal Char
           | Sequence [Term]
@@ -33,7 +34,7 @@ data NFAOneAccepting state alphabetSet = NFAOA { nfaoaStates :: [state]
 
 data RegularGrammar nonterminal terminal = RG { nonTerminals :: [nonterminal]
                                               , startSymbol :: nonterminal
-                                              , productionRules :: [(nonterminal, [Either nonterminal terminal])] }
+                                              , productionRules :: [(nonterminal, [[Either nonterminal terminal]])] }
                                           deriving (Eq)
 
 instance (Show s, Show a) => Show (DFA s a) where
@@ -65,12 +66,14 @@ instance (Show s, Show a) => Show (NFAOneAccepting s a) where
      ++ (concat $ intersperse "\n" [show (x, map (nfaoaTransition nfaoa x) possibleTransitions) | x<-(nfaoaStates nfaoa)])
     where possibleTransitions = Nothing:(map Just (nfaoaAlphabet nfaoa))
 
+-- [(nt, map snd $ filter ((==nt).fst) (productionRules gr)) | nt<-(nonTerminals gr)]
 instance (Eq nonterminal, Show nonterminal, Show terminal) => Show (RegularGrammar nonterminal terminal)  where
-  show gr = "starting symbol: " ++ showNonTerminal (startSymbol gr) ++ "\n" ++ concatMap showNonTerminalRules [(nt, map snd $ filter ((==nt).fst) (productionRules gr)) | nt<-(nonTerminals gr)]
+  show gr = "starting symbol: " ++ showNonTerminal (startSymbol gr) ++ "\n" ++ concatMap showNonTerminalRules (productionRules gr)
           where widthNonTerminal = 4
                 arrow = " -> "
                 showNonTerminalRules :: (Eq nonterminal, Show nonterminal, Show terminal) => (nonterminal, [[Either nonterminal terminal]]) -> String
                 showNonTerminalRules (nt, (firstRule:rest)) = (showFirstRule nt firstRule) ++ (concatMap showRest rest)
+                showNonTerminalRules (nt, []) = (showNonTerminal nt) ++ " -> ERROR\n"
                 showNonTerminal :: Show nonterminal => nonterminal -> String
                 showNonTerminal nt = '_':(show nt)
                 showRule :: (Show nonterminal, Show terminal) => [Either nonterminal terminal] -> String
@@ -249,24 +252,28 @@ simplifyPowersetConstruction dfa = DFA {
 minimizeDFA :: Eq s => DFA s a -> DFA s a
 minimizeDFA dfa = mergeIndistinguishableStates dfa (indistinguishableStates dfa)
 
+groupRulesByNonTerminal :: Eq nonterminal => [nonterminal] -> [(nonterminal, [Either nonterminal terminal])] -> [(nonterminal, [[Either nonterminal terminal]])]
+groupRulesByNonTerminal nts rs = [(nt, map snd $ filter ((==nt).fst) rs) | nt<-nts]
+
 -- convertDFAtoGrammar :: DFA s a -> Grammar s a
 convertDFAToGrammar dfa = RG { nonTerminals = states
                              , startSymbol = initialState
-                             , productionRules = [(s, [Right c, Left (delta s c)]) | s<-states, c<-alpha] ++
+                             , productionRules = groupRulesByNonTerminal states (
+                                                 [(s, [Right c, Left (delta s c)]) | s<-states, c<-alpha] ++
                                                  [(s, [Right c]) | s<-states, c<-alpha, isAccepting (delta s c)] ++
-                                                 (if isAccepting initialState then [(initialState, [])] else []) }
+                                                 (if isAccepting initialState then [(initialState, [])] else [])) }
                         where states = dfaStates dfa
                               initialState = dfaInitialState dfa
                               delta = dfaTransition dfa
                               alpha = dfaAlphabet dfa
                               isAccepting = \x -> elem x (dfaAcceptingStates dfa)
 
-rulesOfNT gr nt = map snd $ filter ((==nt).fst) (productionRules gr)
+rulesOfNT gr nt = fromMaybe [] (lookup nt (productionRules gr))
 
 deleteSinkNonTerminals grammar = converge deleteSinkNonTerminals' grammar
     where deleteSinkNonTerminals' gr = RG { nonTerminals = (nonTerminals gr) \\ (sinkNonTerminals gr)
                                           , startSymbol = startSymbol gr
-                                          , productionRules = [(nt, r) | (nt,r)<-(productionRules gr), not (elem nt (sinkNonTerminals gr)), null (lefts r) || (not $ null ((lefts r) \\ (sinkNonTerminals gr)))] }
+                                          , productionRules = [(nt, [r | r<-rs, not (elem nt (sinkNonTerminals gr)), null (lefts r) || (not $ null ((lefts r) \\ (sinkNonTerminals gr)))]) | (nt,rs)<-(productionRules gr)] }
           sinkNonTerminals gr = [nt | nt<-(nonTerminals gr), all null $ map (\x -> (lefts x) \\ (sinkNonTerminals' gr)) (rulesOfNT gr nt), not (hasBaseCase gr nt)]
           sinkNonTerminals' gr = [nt | nt<-(nonTerminals gr), not (any (hasNonTerminalOtherThanSelf nt) (rulesOfNT gr nt)), not (hasBaseCase gr nt)]
           hasBaseCase gr nt = elem [] (map lefts (rulesOfNT gr nt))
@@ -277,42 +284,26 @@ deleteNonRecursiveNonTerminals = converge deleteNonRecursiveNonTerminal
 deleteNonRecursiveNonTerminal grammar = if isThereANonRecursiveNT
                                      then RG { nonTerminals = (nonTerminals grammar) \\ [fstNonRecursiveNT]
                                              , startSymbol = startSymbol grammar
-                                             , productionRules = [(nt, p) | (nt,p)<-(productionRules grammar), nt /= fstNonRecursiveNT, p'<-(if elem fstNonRecursiveNT (lefts p) then replaceNT p fstNonRecursiveNT (rulesOfNT grammar fstNonRecursiveNT) else [p])] }
+                                             , productionRules = [(nt, concat [if elem fstNonRecursiveNT (lefts p') then replaceNT p' fstNonRecursiveNT fstNonRecursiveNTRules else [p'] | p'<-p]) | (nt,p)<-(productionRules grammar), nt /= fstNonRecursiveNT] }
                                      else grammar
     where nonRecursiveNTs = [nt | nt<-(nonTerminals grammar), all (not.(elem (Left nt))) (rulesOfNT grammar nt), nt /= startSymbol grammar]
           isThereANonRecursiveNT = not $ null nonRecursiveNTs
           fstNonRecursiveNT = head nonRecursiveNTs
+          fstNonRecursiveNTRules = rulesOfNT grammar fstNonRecursiveNT
           replaceNT [] _ _ = [[]]
           replaceNT ((Left n):ps) nt rules = if n == nt then [x++y | x<-rules, y<-(replaceNT ps n rules)] else [(Left n):y | y<-(replaceNT ps n rules)]
           replaceNT ((Right t):ps) nt rules = [(Right t):x | x<-(replaceNT ps nt rules)]
 
-
-
-deleteOneRuleNonTerminals :: (Eq nonterminal, Eq terminal) => RegularGrammar nonterminal terminal -> RegularGrammar nonterminal terminal
-deleteOneRuleNonTerminals = converge deleteOneRuleNonTerminal
-deleteOneRuleNonTerminal grammar = if isThereAOneRuleNT
-                                     then RG { nonTerminals = (nonTerminals grammar) \\ [fstOneRuleNT]
-                                             , startSymbol = startSymbol grammar
-                                             , productionRules =[(nt, if elem fstOneRuleNT (lefts p) then replaceNT p fstOneRuleNT else p) | (nt,p)<-(productionRules grammar), nt /= fstOneRuleNT] }
-                                     else grammar
-    where oneRuleNTs = [nt | nt<-(nonTerminals grammar), length (rulesOfNT grammar nt) == 1, nt /= startSymbol grammar]
-          isThereAOneRuleNT = not $ null oneRuleNTs
-          fstOneRuleNT = head oneRuleNTs
-          replaceNT [] nt = []
-          replaceNT ((Left n):ps) nt = (if n == nt then (head (rulesOfNT grammar n)) else [Left n])++(replaceNT ps n)
-          replaceNT ((Right t):ps) nt = (Right t):(replaceNT ps nt)
-
-unfoldGrammar grammar = RG { nonTerminals = nonTerminals grammar
-                           , startSymbol = startSymbol grammar
-                           , productionRules = [(nt, p') | (nt,p)<-(productionRules grammar), p'<-(applyAllRules (productionRules grammar) p)] }
+-- deleteSameRules :: (Eq nonterminal, Eq terminal) => RegularGrammar nonterminal terminal -> RegularGrammar nonterminal terminal
+-- deleteSameRules grammar = 
 
 optimizationStep :: (Eq nonterminal, Eq terminal)
                  => RegularGrammar nonterminal terminal -> RegularGrammar nonterminal terminal
 optimizationStep = (deleteNonRecursiveNonTerminals . deleteSinkNonTerminals)
 
-applyAllRules :: Eq nonterminal => [(nonterminal, [Either nonterminal terminal])] -> [Either nonterminal terminal] -> [[Either nonterminal terminal]]
+applyAllRules :: Eq nonterminal => [(nonterminal, [[Either nonterminal terminal]])] -> [Either nonterminal terminal] -> [[Either nonterminal terminal]]
 applyAllRules prs [] = [[]]
-applyAllRules prs ((Left nt):rest) = [p++rest' | p<-(map snd $ filter ((==nt).fst) prs), rest'<-(applyAllRules prs rest)]
+applyAllRules prs ((Left nt):rest) = [p++rest' | p<-(concatMap snd $ filter ((==nt).fst) prs), rest'<-(applyAllRules prs rest)]
 applyAllRules prs ((Right t):rest) = [(Right t):rest' | rest'<-(applyAllRules prs rest)]
 
 
@@ -320,7 +311,7 @@ languageFromGrammar :: Eq nonterminal => RegularGrammar nonterminal terminal -> 
 languageFromGrammar gr = languageFromGrammar' (productionRules gr) [[Left (startSymbol gr)]]
 
 
-languageFromGrammar' :: Eq nonterminal => [(nonterminal, [Either nonterminal terminal])] -> [[Either nonterminal terminal]] -> [[terminal]]
+languageFromGrammar' :: Eq nonterminal => [(nonterminal, [[Either nonterminal terminal]])] -> [[Either nonterminal terminal]] -> [[terminal]]
 languageFromGrammar' pr derivs = (map rights finished) ++ (languageFromGrammar' pr unfinished)
               where (finished, unfinished) = partition (all isRight) (concatMap (applyAllRules pr) derivs)
 
