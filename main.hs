@@ -4,16 +4,18 @@ import Control.Monad
 import Text.ParserCombinators.Parsec
 import Text.ParserCombinators.Parsec.Expr
 import Data.Function (on)
-import Data.List (elemIndex, group, intersect, intersperse, nub, partition, sort, (\\))
+import Data.List (elemIndex, group, intersect, intercalate, intersperse, nub, partition, sort, (\\))
 import Data.Char (isAscii, isPrint)
 import Data.Either (fromRight, isRight, lefts, rights)
 import Data.Maybe (fromMaybe)
+import Data.Set (Set)
+import qualified Data.Set as Set (member)
 
 data Term = Literal Char
           | Sequence [Term]
           | Repeat (Int, Maybe Int) Term
           | Choice [Term]
-          | Set [Char]
+          | CharSet (Set Char)
   deriving ( Show )
 
 data DFA state alphabetSet = DFA { dfaStates :: [state]
@@ -38,22 +40,22 @@ data RegularGrammar nonterminal terminal = RG { nonTerminals :: [nonterminal]
                                           deriving (Eq)
 
 instance (Show s, Show a) => Show (DFA s a) where
-  show dfa = "states: " ++ (show (dfaStates dfa)) ++ "\n"
-     ++ "alphabet: " ++ (show (dfaAlphabet dfa)) ++ "\n"
-     ++ "initial state: " ++ (show (dfaInitialState dfa)) ++ "\n"
-     ++ "accepting states: " ++ (show (dfaAcceptingStates dfa)) ++ "\n"
+  show dfa = "states: " ++ show (dfaStates dfa) ++ "\n"
+     ++ "alphabet: " ++ show (dfaAlphabet dfa) ++ "\n"
+     ++ "initial state: " ++ show (dfaInitialState dfa) ++ "\n"
+     ++ "accepting states: " ++ show (dfaAcceptingStates dfa) ++ "\n"
      ++ "transition function:\n"
-     ++ (show (dfaAlphabet dfa)) ++ "\n"
+     ++ show (dfaAlphabet dfa) ++ "\n"
      ++ (concat $ intersperse "\n" [show (x, map (dfaTransition dfa x) (dfaAlphabet dfa)) | x<-(dfaStates dfa)])
 
 instance (Show s, Show a) => Show (NFA s a) where
-  show nfa = "states: " ++ (show (nfaStates nfa)) ++ "\n"
-     ++ "alphabet: " ++ (show (nfaAlphabet nfa)) ++ "\n"
-     ++ "initial state: " ++ (show (nfaInitialState nfa)) ++ "\n"
-     ++ "accepting state: " ++ (show (nfaAcceptingStates nfa)) ++ "\n"
+  show nfa = "states: " ++ show (nfaStates nfa) ++ "\n"
+     ++ "alphabet: " ++ show (nfaAlphabet nfa) ++ "\n"
+     ++ "initial state: " ++ show (nfaInitialState nfa) ++ "\n"
+     ++ "accepting state: " ++ show (nfaAcceptingStates nfa) ++ "\n"
      ++ "transition function:\n"
-     ++ (show possibleTransitions) ++ "\n"
-     ++ (concat $ intersperse "\n" [show (x, map (nfaTransition nfa x) possibleTransitions) | x<-(nfaStates nfa)])
+     ++ show possibleTransitions ++ "\n"
+     ++ (intercalate "\n" [show (x, map (nfaTransition nfa x) possibleTransitions) | x<-(nfaStates nfa)])
     where possibleTransitions = Nothing:(map Just (nfaAlphabet nfa))
 
 instance (Show s, Show a) => Show (NFAOneAccepting s a) where
@@ -274,37 +276,37 @@ deleteSinkNonTerminals grammar = converge deleteSinkNonTerminals' grammar
     where deleteSinkNonTerminals' gr = RG { nonTerminals = (nonTerminals gr) \\ (sinkNonTerminals gr)
                                           , startSymbol = startSymbol gr
                                           , productionRules = [(nt, [r | r<-rs, not (elem nt (sinkNonTerminals gr)), null (lefts r) || (not $ null ((lefts r) \\ (sinkNonTerminals gr)))]) | (nt,rs)<-(productionRules gr)] }
-          sinkNonTerminals gr = [nt | nt<-(nonTerminals gr), all null $ map (\x -> (lefts x) \\ (sinkNonTerminals' gr)) (rulesOfNT gr nt), not (hasBaseCase gr nt)]
+          sinkNonTerminals gr = [nt | nt <- nonTerminals gr, all null $ map (\x -> lefts x \\ sinkNonTerminals' gr) (rulesOfNT gr nt), not (hasBaseCase gr nt)]
           sinkNonTerminals' gr = [nt | nt<-(nonTerminals gr), not (any (hasNonTerminalOtherThanSelf nt) (rulesOfNT gr nt)), not (hasBaseCase gr nt)]
-          hasBaseCase gr nt = elem [] (map lefts (rulesOfNT gr nt))
-          hasNonTerminalOtherThanSelf nt = not.null.(filter (/=nt)).lefts
+          hasBaseCase gr nt = [] `elem` map lefts (rulesOfNT gr nt)
+          hasNonTerminalOtherThanSelf nt = any (/=nt) . lefts
 
 deleteNonRecursiveNonTerminals :: (Eq nonterminal, Eq terminal) => RegularGrammar nonterminal terminal -> RegularGrammar nonterminal terminal
 deleteNonRecursiveNonTerminals = converge deleteNonRecursiveNonTerminal
 deleteNonRecursiveNonTerminal grammar = if isThereANonRecursiveNT
-                                     then RG { nonTerminals = (nonTerminals grammar) \\ [fstNonRecursiveNT]
+                                     then RG { nonTerminals = nonTerminals grammar \\ [fstNonRecursiveNT]
                                              , startSymbol = startSymbol grammar
-                                             , productionRules = [(nt, concat [if elem fstNonRecursiveNT (lefts p') then replaceNT p' fstNonRecursiveNT fstNonRecursiveNTRules else [p'] | p'<-p]) | (nt,p)<-(productionRules grammar), nt /= fstNonRecursiveNT] }
+                                             , productionRules = [(nt, concat [if fstNonRecursiveNT `elem` lefts p' then replaceNT p' fstNonRecursiveNT fstNonRecursiveNTRules else [p'] | p'<-p]) | (nt,p) <- productionRules grammar, nt /= fstNonRecursiveNT] }
                                      else grammar
-    where nonRecursiveNTs = [nt | nt<-(nonTerminals grammar), all (not.(elem (Left nt))) (rulesOfNT grammar nt), nt /= startSymbol grammar]
+    where nonRecursiveNTs = [nt | nt <- nonTerminals grammar, all (notElem (Left nt)) (rulesOfNT grammar nt), nt /= startSymbol grammar]
           isThereANonRecursiveNT = not $ null nonRecursiveNTs
           fstNonRecursiveNT = head nonRecursiveNTs
           fstNonRecursiveNTRules = rulesOfNT grammar fstNonRecursiveNT
           replaceNT [] _ _ = [[]]
-          replaceNT ((Left n):ps) nt rules = if n == nt then [x++y | x<-rules, y<-(replaceNT ps n rules)] else [(Left n):y | y<-(replaceNT ps n rules)]
-          replaceNT ((Right t):ps) nt rules = [(Right t):x | x<-(replaceNT ps nt rules)]
+          replaceNT (Left n : ps) nt rules = if n == nt then [x++y | x<-rules, y <- replaceNT ps n rules] else [Left n : y | y <- replaceNT ps n rules]
+          replaceNT (Right t : ps) nt rules = [Right t : x | x <- replaceNT ps nt rules]
 
 -- deleteSameRules :: (Eq nonterminal, Eq terminal) => RegularGrammar nonterminal terminal -> RegularGrammar nonterminal terminal
 -- deleteSameRules grammar = 
 
 optimizationStep :: (Eq nonterminal, Eq terminal)
                  => RegularGrammar nonterminal terminal -> RegularGrammar nonterminal terminal
-optimizationStep = (deleteNonRecursiveNonTerminals . deleteSinkNonTerminals)
+optimizationStep = deleteNonRecursiveNonTerminals . deleteSinkNonTerminals
 
 applyAllRules :: Eq nonterminal => [(nonterminal, [[Either nonterminal terminal]])] -> [Either nonterminal terminal] -> [[Either nonterminal terminal]]
 applyAllRules prs [] = [[]]
-applyAllRules prs ((Left nt):rest) = [p++rest' | p<-(concatMap snd $ filter ((==nt).fst) prs), rest'<-(applyAllRules prs rest)]
-applyAllRules prs ((Right t):rest) = [(Right t):rest' | rest'<-(applyAllRules prs rest)]
+applyAllRules prs (Left nt : rest) = [p ++ rest' | p <- concatMap snd (filter ((==nt).fst) prs), rest' <- applyAllRules prs rest]
+applyAllRules prs (Right t : rest) = [Right t : rest' | rest' <- applyAllRules prs rest]
 
 
 languageFromGrammar :: Eq nonterminal => RegularGrammar nonterminal terminal -> [[terminal]]
@@ -312,10 +314,22 @@ languageFromGrammar gr = languageFromGrammar' (productionRules gr) [[Left (start
 
 
 languageFromGrammar' :: Eq nonterminal => [(nonterminal, [[Either nonterminal terminal]])] -> [[Either nonterminal terminal]] -> [[terminal]]
-languageFromGrammar' pr derivs = (map rights finished) ++ (languageFromGrammar' pr unfinished)
+languageFromGrammar' pr derivs = map rights finished ++ languageFromGrammar' pr unfinished
               where (finished, unfinished) = partition (all isRight) (concatMap (applyAllRules pr) derivs)
 
 
+
+---- TESTS----
 test1 = Sequence [Repeat (0, Nothing) (Literal 'a'), Repeat (1, Nothing) (Literal 'b')]
 
+testRegexToDFA = minimizeDFA . determinizeNFA . relaxOneAccepting . regexToNFA . parseRegex
 testF = convertDFAToGrammar . simplifyPowersetConstruction . minimizeDFA . determinizeNFA . relaxOneAccepting . regexToNFA . parseRegex
+
+-- isAccepted :: DFA s a -> [a] -> Bool
+isAccepted dfa str = isAccepted' dfa str (dfaInitialState dfa)
+  where isAccepted' dfa [] s = s `elem` dfaAcceptingStates dfa
+        isAccepted' dfa (x:xs) s = isAccepted' dfa xs (dfaTransition dfa s x)
+
+testDFA1 = accepts "aaaac" && accepts "abbbbbbc" && not (accepts "ab")
+   where dfa1 = testRegexToDFA "a+b*c+"
+         accepts = isAccepted dfa1
