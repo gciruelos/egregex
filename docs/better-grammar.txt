@@ -1,0 +1,58 @@
+<RE>            ::=   <union>
+                  |   <simple-RE>
+<union>         ::=   <RE> | <simple-RE>
+<simple-RE>     ::=   <concatenation>
+                  |   <basic-RE>
+<concatenation> ::=   <simple-RE> <basic-RE>
+<basic-RE>      ::=   <star>
+                  |   <plus>
+                  |   <elementary-RE>
+<star>          ::=   <elementary-RE> *
+<plus>          ::=   <elementary-RE> +
+<elementary-RE> ::=   <group>
+                  |   <any>
+                  |   <eos>
+                  |   <char>
+                  |   <set>
+<group>         ::=   ( <RE> )
+<any>           ::=   .
+<eos>           ::=   $
+<char>          ::=   any non metacharacter
+                  |   \ metacharacter
+                  |   \ escapablechar
+<set>           ::=   <positive-set>
+                  |   <negative-set>
+<positive-set>  ::=   [ <set-items> ]
+<negative-set>  ::=   [^ <set-items> ]
+<set-items>     ::=   <set-item>
+                  |   <set-item> <set-items>
+<set-item>      ::=   <range>
+                  |   <char>
+<range>         ::=   <char> - <char>
+
+
+metacharacter = ?
+                *
+                +
+                ^
+                $
+                .
+                |
+
+
+escapablechar = t {=tab character}
+                n {=newline character}
+                r {=carriage return character}
+                f {=form feed character}
+                c digit {=control character CTRL-X}
+                odigit odigit odigit {=octal code for character NNN}
+                b {=match a 'word' boundary}
+
+anycharacter = ! " # $ % & ' ( ) * + , - . / :
+               ; < = > ? @ [ \ ] ^ _ ` { | } ~
+               0 1 2 3 4 5 6 7 8 9
+               A B C D E F G H I J K L M N O P Q R S T U V W X Y Z
+               a b c d e f g h i j k l m n o p q r s t u v w x y z
+
+odigit = 0 1 2 3 4 5 6 7
+digit = 0 1 2 3 4 5 6 7 8 9
