@@ -459,6 +459,7 @@ languageFromGrammar' :: Eq nonterminal
                      => [(nonterminal, [[Either nonterminal terminal]])]
                      -> [[Either nonterminal terminal]]
                      -> [[terminal]]
+languageFromGrammar' pr [] = []
 languageFromGrammar' pr derivs = map rights finished ++ languageFromGrammar' pr unfinished
   where
     (finished, unfinished) = partition (all isRight) (concatMap (applyAllRules pr) derivs)
