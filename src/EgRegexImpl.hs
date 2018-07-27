@@ -169,6 +169,15 @@ allChars = filter (\c -> isPrint c && isAscii c) $ enumFromTo minBound maxBound
 --- Obtaining the non-deterministic finite automaton ---------------------------
 --------------------------------------------------------------------------------
 
+adjustNFAOA :: Integer -> NFAOneAccepting Integer c -> NFAOneAccepting Integer c
+adjustNFAOA n nfaoa = NFAOA
+    { nfaoaStates = map (+n) (nfaoaStates nfaoa)
+    , nfaoaAlphabet = nfaoaAlphabet nfaoa
+    , nfaoaTransition = \state c' -> map (+n) ((nfaoaTransition nfaoa) (state - n) c')
+    , nfaoaInitialState = n + (nfaoaInitialState nfaoa)
+    , nfaoaAcceptingState = n + (nfaoaAcceptingState nfaoa)
+    }
+
 regexToNFA :: Term -> NFAOneAccepting Integer Char
 regexToNFA (Literal c) = NFAOA
     { nfaoaStates = [0, 1]
@@ -223,6 +232,29 @@ regexToNFA (Repeat (0, Nothing) tm) = NFAOA
     transitionF = nfaoaTransition nfaoa
     init = nfaoaInitialState nfaoa
 regexToNFA (Repeat (n, Nothing) tm) = regexToNFA $ Sequence (Repeat (0, Nothing) tm : replicate n tm)
+regexToNFA (Choice []) = regexToNFA (Sequence [])
+regexToNFA (Choice xs) = NFAOA
+    { nfaoaStates = sort (0 : nextState : (foldl1 (++) (map nfaoaStates adjustedNFAOAs)))
+    , nfaoaAlphabet = nubSort (foldl1 (++) (map nfaoaAlphabet adjustedNFAOAs))
+    , nfaoaTransition = \state c' ->
+        if state == 0
+            then (if c' == Nothing then init newStartingStates else [])
+        else (if state == nextState
+            then []
+        else (nfaoaTransition (corresponding newStartingStates adjustedNFAOAs state) state c')) ++
+          [nextState | state `elem` acceptingStates && isNothing c']
+    , nfaoaInitialState = 0
+    , nfaoaAcceptingState = nextState
+    }
+  where
+    nfaoas = map regexToNFA xs
+    lengths = map (toInteger . length . nfaoaStates) nfaoas
+    newStartingStates = 1 : (map (+1) (scanl1 (+) lengths))
+    adjustedNFAOAs = zipWith adjustNFAOA newStartingStates nfaoas
+    nextState = last newStartingStates
+    corresponding (i:i':is) (nfa':nfas') i'' = if i <= i'' && i'' < i'
+                                               then nfa' else corresponding (i':is) nfas' i''
+    acceptingStates = map nfaoaAcceptingState adjustedNFAOAs
 
 
 
@@ -257,7 +289,7 @@ determinizeNFA nfa = DFA
     (states, transition) = determinizeNFA' nfa [] (const $ const []) [initialState]
 
 determinizeNFA' :: Ord s => NFA s a -> [[s]] -> ([s] -> a -> [s]) -> [[s]] -> ([[s]], [s] -> a -> [s])
-determinizeNFA' nfa currentStates currentTransition [] = (currentStates, currentTransition)
+determinizeNFA' nfa currentStates currentTransition [] = (nub currentStates, currentTransition)
 determinizeNFA' nfa currentStates currentTransition (pss:pendingStates) =
     if pss `elem` currentStates
     then determinizeNFA' nfa currentStates currentTransition pendingStates
@@ -288,7 +320,7 @@ mergeIndistinguishableStates dfa equivalenceClasses = DFA
     , dfaAlphabet = dfaAlphabet dfa
     , dfaTransition = \s -> mergeFunction . dfaTransition dfa s
     , dfaInitialState = mergeFunction (dfaInitialState dfa)
-    , dfaAcceptingStates = map mergeFunction (dfaAcceptingStates dfa)
+    , dfaAcceptingStates = nub $ map mergeFunction (dfaAcceptingStates dfa)
     }
   where
     mergeFunction = mergeIndistinguishableStatesFunction dfa equivalenceClasses (dfaStates dfa)
@@ -426,8 +458,14 @@ deleteIncludedRules' grammar = maybe grammar (replaceIncluded grammar) (findIncl
 
 
 optimizeGrammar :: (Eq nonterminal, Eq terminal)
-                 => RegularGrammar nonterminal terminal -> RegularGrammar nonterminal terminal
+                => RegularGrammar nonterminal terminal -> RegularGrammar nonterminal terminal
 optimizeGrammar = converge $ deleteIncludedRules . deleteSameRules . deleteNonRecursiveNonTerminals . deleteSinkNonTerminals
+
+--------------------------------------------------------------------------------
+-- Obtaining the complement DFA ------------ -----------------------------------
+--------------------------------------------------------------------------------
+
+-- extendDFA :: Eq a => DFA s a -> [a] -> DFA a
 
 
 --------------------------------------------------------------------------------
