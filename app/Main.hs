@@ -1,8 +1,8 @@
 module Main where
 
 import EgRegex
-    (  languageFromGrammar
-    , testF
+    ( languageFromRegexString
+    , complementLanguageFromRegexString
     )
 import System.Environment (getArgs)
 import System.IO
@@ -10,6 +10,7 @@ import System.IO
     , stdout
     )
 
+putStrLnAndFlush :: String -> IO ()
 putStrLnAndFlush s = do
     putStrLn s
     hFlush stdout
@@ -17,4 +18,4 @@ putStrLnAndFlush s = do
 main :: IO ()
 main = do
     args <- getArgs
-    mapM_ putStrLn (languageFromGrammar (testF (head args))) --  "he(llo)*|wor+ld\\w?"
+    mapM_ putStrLnAndFlush (languageFromRegexString (head args))
