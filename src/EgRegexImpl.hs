@@ -31,6 +31,8 @@ data Term = Literal Char
           | Repeat (Int, Maybe Int) Term
           | Choice [Term]
           | CharSet (Set Char)
+          | Intersect [Term]
+          | Complement [Char] Term
   deriving ( Show )
 
 data DFA state alphabetSet = DFA
@@ -165,6 +167,13 @@ piecewiseEq a f g a' = if a == a' then f else g a
 -- allChars
 allChars = filter (\c -> isPrint c && isAscii c) $ enumFromTo minBound maxBound
 
+parseRegexes :: [Char] -> [Either String String] -> Term
+parseRegexes extendedAlphabet ss = if length regexes == 1
+                                   then head regexes
+                                   else Intersect regexes
+  where
+    regexes = map (either ((Complement extendedAlphabet).parseRegex) parseRegex) ss
+
 --------------------------------------------------------------------------------
 --- Obtaining the non-deterministic finite automaton ---------------------------
 --------------------------------------------------------------------------------
@@ -255,6 +264,22 @@ regexToNFA (Choice xs) = NFAOA
     corresponding (i:i':is) (nfa':nfas') i'' = if i <= i'' && i'' < i'
                                                then nfa' else corresponding (i':is) nfas' i''
     acceptingStates = map nfaoaAcceptingState adjustedNFAOAs
+regexToNFA (Complement newAlphabet tm) = NFAOA
+    { nfaoaStates = sort (newAccepting : (dfaStates cDFA))
+    , nfaoaAlphabet = dfaAlphabet cDFA
+    , nfaoaTransition = \state c' ->
+        if state == newAccepting
+        then [newAccepting | isNothing c']
+        else (case c' of
+            Nothing  -> [newAccepting | state `elem` (dfaAcceptingStates cDFA)]
+            Just c'' -> [dfaTransition cDFA state c''])
+    , nfaoaInitialState = dfaInitialState cDFA
+    , nfaoaAcceptingState = newAccepting
+    }
+  where
+    determinization = simplifyPowersetConstruction . determinizeNFA . relaxOneAccepting
+    cDFA = complementDFA newAlphabet (determinization (regexToNFA tm))
+    newAccepting = maximum (dfaStates cDFA) + 1
 
 
 
@@ -333,19 +358,18 @@ mergeIndistinguishableStatesFunction dfa equivalenceClasses (state:rest) s =
   then head (head [eqC | eqC<-equivalenceClasses, s `elem` eqC])
   else mergeIndistinguishableStatesFunction dfa equivalenceClasses rest s
 
-simplifyPowersetConstruction :: Eq s => DFA [s] a -> DFA Int a
+simplifyPowersetConstruction :: Eq s => DFA [s] a -> DFA Integer a
 simplifyPowersetConstruction dfa = DFA
     { dfaStates = map simplifyFunction states
     , dfaAlphabet = dfaAlphabet dfa
-    , dfaTransition = \s c -> simplifyFunction (dfaTransition dfa (states !! s) c)
+    , dfaTransition = \s c ->
+          simplifyFunction (dfaTransition dfa (states !! (fromInteger s)) c)
     , dfaInitialState = simplifyFunction (dfaInitialState dfa)
     , dfaAcceptingStates = map simplifyFunction (dfaAcceptingStates dfa)
     }
   where
     states = dfaStates dfa
-    primes = filter isPrime [1..]
-    isPrime n = [mod n d | d<-[1..n]] == [1,n]
-    simplifyFunction x = unJustify $ elemIndex x states
+    simplifyFunction x = toInteger $ unJustify $ elemIndex x states
     unJustify (Just y) = y
 
 minimizeDFA :: Eq s => DFA s a -> DFA s a
@@ -455,6 +479,19 @@ deleteIncludedRules' grammar = maybe grammar (replaceIncluded grammar) (findIncl
         , productionRules = [(nt, if nt `elem` ntsReplace && nt /= minNT then [Left minNT]:(p \\ minPs) else p) | (nt,p) <- productionRules gr]
         }
 
+-- normalizeGrammar :: Ord nonterminal
+--                  => RegularGrammar nonterminal terminal -> RegularGrammar nonterminal terminal
+-- normalizeGrammar gr = RG
+--     { nonTerminals = nonTerminals gr
+--     , startSymbol = startSymbol gr
+--     , productionRules = (rulesOfNT gr (startSymbol gr)) : [
+--           | nt <- restNonTerminals
+--       ]
+--     }
+--   where
+--     restNonTerminals = sort (nonTerminals gr \\ [startSymbol gr])
+--     newNonTerminals = (startSymbol gr) : restNonTerminals
+--     isBefore nt nt' = (elemIndex nt newNonTerminals) < (elemIndex nt newNonTerminals)
 
 
 optimizeGrammar :: (Eq nonterminal, Eq terminal)
@@ -462,10 +499,38 @@ optimizeGrammar :: (Eq nonterminal, Eq terminal)
 optimizeGrammar = converge $ deleteIncludedRules . deleteSameRules . deleteNonRecursiveNonTerminals . deleteSinkNonTerminals
 
 --------------------------------------------------------------------------------
--- Obtaining the complement DFA ------------ -----------------------------------
+-- Obtaining the complement DFA ------------------------------------------------
 --------------------------------------------------------------------------------
 
--- extendDFA :: Eq a => DFA s a -> [a] -> DFA a
+extendDFA :: (Num state, Ord state, Eq alphabetSet)
+          => [alphabetSet] -> DFA state alphabetSet -> DFA state alphabetSet
+extendDFA newAlphabet dfa =
+    if newAlphabet `isSublist` (dfaAlphabet dfa)
+    then dfa
+    else DFA
+        { dfaStates = newStates
+        , dfaAlphabet = dfaAlphabet dfa ++ newAlphabet'
+        , dfaTransition = \state c' -> if state == sinkState
+                                       then sinkState
+                                       else (if c' `elem` (dfaAlphabet dfa)
+                                             then dfaTransition dfa state c'
+                                             else sinkState)
+        , dfaInitialState = dfaInitialState dfa
+        , dfaAcceptingStates = dfaAcceptingStates dfa
+        }
+  where
+    sinkState = maximum (dfaStates dfa) + 1
+    newAlphabet' = newAlphabet \\ dfaAlphabet dfa
+    newStates = sort (sinkState : (dfaStates dfa))
+
+complementDFA newAlphabet dfa = let dfa'= extendDFA newAlphabet dfa in DFA
+    { dfaStates = dfaStates dfa'
+    , dfaAlphabet = dfaAlphabet dfa'
+    , dfaTransition = dfaTransition dfa'
+    , dfaInitialState = dfaInitialState dfa'
+    , dfaAcceptingStates = (dfaStates dfa') \\ (dfaAcceptingStates dfa')
+    }
+
 
 
 --------------------------------------------------------------------------------

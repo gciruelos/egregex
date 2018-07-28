@@ -1,20 +1,31 @@
 module EgRegex
-    ( languageFromRegexString
-    , complementLanguageFromRegexString
+    ( languageFromRegexStrings
+    , complementLanguageFromRegexStrings
     ) where
 
 import EgRegexImpl
 
-languageFromRegexString :: String -> [String]
-languageFromRegexString = languageFromGrammar .
-                          optimizeGrammar .
-                          convertDFAToGrammar .
-                          simplifyPowersetConstruction .
-                          minimizeDFA .
-                          determinizeNFA .
-                          relaxOneAccepting .
-                          regexToNFA .
-                          parseRegex
+languageFromRegexStrings :: [Char] -> [Either String String] -> [String]
+languageFromRegexStrings extendedAlphabet =
+    languageFromGrammar .
+    optimizeGrammar .
+    convertDFAToGrammar .
+    minimizeDFA .
+    simplifyPowersetConstruction .
+    determinizeNFA .
+    relaxOneAccepting .
+    regexToNFA .
+    (parseRegexes extendedAlphabet)
 
-complementLanguageFromRegexString :: String -> [String]
-complementLanguageFromRegexString _ = []
+complementLanguageFromRegexStrings :: [Char] -> [Either String String] -> [String]
+complementLanguageFromRegexStrings extendedAlphabet =
+    languageFromGrammar .
+    optimizeGrammar .
+    convertDFAToGrammar .
+    minimizeDFA .
+    simplifyPowersetConstruction .
+    determinizeNFA .
+    relaxOneAccepting .
+    regexToNFA .
+    (Complement extendedAlphabet) .
+    (parseRegexes extendedAlphabet)

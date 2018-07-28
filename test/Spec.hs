@@ -5,7 +5,7 @@ import EgRegexImpl
 test1 = Sequence [Repeat (0, Nothing) (Literal 'a'), Repeat (1, Nothing) (Literal 'b')]
 
 testRegexToDFA = minimizeDFA . determinizeNFA . relaxOneAccepting . regexToNFA . parseRegex
-testF = convertDFAToGrammar . simplifyPowersetConstruction . minimizeDFA . determinizeNFA . relaxOneAccepting . regexToNFA . parseRegex
+testF = convertDFAToGrammar . minimizeDFA . simplifyPowersetConstruction . determinizeNFA . relaxOneAccepting . regexToNFA . parseRegex
 
 -- isAccepted :: DFA s a -> [a] -> Bool
 isAccepted dfa str = isAccepted' dfa str (dfaInitialState dfa)
