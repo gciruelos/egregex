@@ -7,6 +7,7 @@ import EgRegex
 import Args
     ( Flag(..)
     , parseOptions
+    , showHelp
     )
 import System.Environment (getArgs)
 import System.IO
@@ -83,4 +84,8 @@ main = do
         then printFlushing (fromMaybe [] shouldShowMismatches)
     else (if isJust optimizationLevel
         then putStrLnAndFlush (showOptimizedRegex extendedAlphabet (fromJust optimizationLevel) regexStrings)
-    else print (show parsedArgs)))
+    else (if Help `elem` parsedArgs
+        then putStrLn (showHelp [])
+    else (if Version `elem` parsedArgs
+        then putStrLn "egregex"
+    else putStrLn "Use `egregex --help`"))))
