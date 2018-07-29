@@ -28,7 +28,7 @@ library:
   source-dirs: src
 
 executables:
-  egregex-exe:
+  egregex:
     main:                Main.hs
     source-dirs:         app
     ghc-options:
