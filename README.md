@@ -112,6 +112,16 @@ $ stack exec egregex -- --matches="a*b+c*" --doesnt-match="a*b+c*" -O0
 ```
 
 
+## TODO
+
+* Debugging capabilities, as in understanding why a regex doesn't match a given string.
+For example,
+
+```
+$ stack exec regex -- debug="hello" "he(lll)+o"
+```
+
+* Cleaner and faster code.
 
 
 
