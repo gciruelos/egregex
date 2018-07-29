@@ -521,7 +521,7 @@ deleteSameRules :: (Eq nonterminal, Eq terminal) => RegularGrammar nonterminal t
 deleteSameRules grammar = converge deleteSameRules' grammar
 
 deleteSameRules' grammar =
-    if length sameRules == 1
+    if null rules || length sameRules == 1
     then grammar
     else RG
         { nonTerminals = newNonTerminals

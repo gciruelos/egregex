@@ -1,7 +1,8 @@
 # egregex
 
 Regular expression debugger and optimizer.
-*UNDER DEVELOPMENT! PRs Welcome.*
+
+**UNDER DEVELOPMENT! PRs welcome.**
 
 
 ## How to build
@@ -98,6 +99,18 @@ they can choose a lower optimization level.
 $ stack exec egregex -- --matches="a+b*c+" --matches="ab+c*" --doesnt-match="abc" -O0
 ab((cc)|(bb*c)))|(ab((cc)|(bb*c))c*(c|)
 ```
+
+### Impossible regexes
+
+```
+$ stack exec egregex -- --matches="a*b+c*" --doesnt-match="a*b+c*" --show-matches=3
+```
+
+```
+$ stack exec egregex -- --matches="a*b+c*" --doesnt-match="a*b+c*" -O0
+<impossible>
+```
+
 
 
 
