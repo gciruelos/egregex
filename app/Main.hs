@@ -3,6 +3,7 @@ module Main where
 import EgRegex
     ( languageFromRegexStrings
     , complementLanguageFromRegexStrings
+    , showOptimizedRegex
     )
 import Args
     ( Flag(..)
@@ -65,11 +66,13 @@ main = do
     printFlushing <- return $ mapM_ putStrLnAndFlush
     shouldShowMatches <- return $ showMatches parsedArgs extendedAlphabet regexStrings
     shouldShowMismatches <- return $ showMismatches parsedArgs extendedAlphabet regexStrings
-    print regexStrings
-    print shouldShowMatches
-    print shouldShowMismatches
+    -- print regexStrings
+    -- print shouldShowMatches
+    -- print shouldShowMismatches
     if isJust shouldShowMatches
         then printFlushing (fromMaybe [] shouldShowMatches)
     else (if isJust shouldShowMismatches
         then printFlushing (fromMaybe [] shouldShowMismatches)
-    else print "")
+    else (if Optimize `elem` parsedArgs
+        then putStrLnAndFlush (showOptimizedRegex extendedAlphabet regexStrings)
+    else print (show parsedArgs)))

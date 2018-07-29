@@ -1,6 +1,7 @@
 module EgRegex
     ( languageFromRegexStrings
     , complementLanguageFromRegexStrings
+    , showOptimizedRegex
     ) where
 
 import EgRegexImpl
@@ -22,6 +23,18 @@ complementLanguageFromRegexStrings extendedAlphabet =
     languageFromGrammar .
     optimizeGrammar .
     convertDFAToGrammar .
+    minimizeDFA .
+    simplifyPowersetConstruction .
+    determinizeNFA .
+    relaxOneAccepting .
+    regexToNFA .
+    (Complement extendedAlphabet) .
+    (parseRegexes extendedAlphabet)
+
+showOptimizedRegex :: [Char] -> [Either String String] -> String
+showOptimizedRegex extendedAlphabet =
+    regexToRegexString .
+    convertDFAToRegex .
     minimizeDFA .
     simplifyPowersetConstruction .
     determinizeNFA .

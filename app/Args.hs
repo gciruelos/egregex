@@ -14,7 +14,7 @@ data Flag = Help
           | ShowMatches (Maybe Integer)
           | ShowMismatches (Maybe Integer)
           | Optimize
-    deriving Show
+    deriving (Eq, Show)
 
 optionalInteger :: Maybe String -> Maybe Integer
 optionalInteger Nothing = Nothing
