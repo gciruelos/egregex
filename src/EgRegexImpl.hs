@@ -182,6 +182,18 @@ addIf g y xs = if g then y:xs else xs
 nubSort :: (Ord a, Eq a) => [a] -> [a]
 nubSort = map head . group . sort
 
+mergeSorted [] ys = ys
+mergeSorted xs [] = xs
+mergeSorted (x:xs) (y:ys) = case compare x y of
+    EQ -> x : (mergeSorted xs ys)
+    LT -> x : (mergeSorted xs (y:ys))
+    GT -> y : (mergeSorted (x:xs) ys)
+
+flattenProduct (x, y) = div (x*x + 3*x + 2*x*y+y + y*y) 2
+unflattenProduct z = let
+    w = floor $ (sqrt(1 + 8*(fromIntegral z)) - 1) / 2
+  in (z - (div (w*(1+w)) 2), div (w * (3 + w)) 2 - z)
+
 -- for piece-wise transitions.
 piecewiseEq :: Eq a => a -> (b -> c) -> (a -> b -> c) -> a -> b -> c
 piecewiseEq a f g a' = if a == a' then f else g a
@@ -250,10 +262,10 @@ regexToNFA (Sequence []) = regexToNFA EmptyLanguage
 regexToNFA (Sequence [tm]) = regexToNFA tm
 regexToNFA (Sequence (tm:tms)) = NFAOA
     { nfaoaStates = nfaoaStates nfaoa1 ++ map (+nextState) (nfaoaStates nfaoa2)
-    , nfaoaAlphabet = nubSort (on (++) nfaoaAlphabet nfaoa1 nfaoa2)
+    , nfaoaAlphabet = mergeSorted (nfaoaAlphabet nfaoa1) (nfaoaAlphabet nfaoa2)
     , nfaoaTransition = \state c' ->
         if state < nextState
-          then nubSort (addIf (state == acceptingState1 && isNothing c') nextState (delta1 state c'))
+          then addIf (state == acceptingState1 && isNothing c') nextState (delta1 state c')
           else map (+nextState) (nfaoaTransition nfaoa2 (state - nextState) c')
     , nfaoaInitialState = nfaoaInitialState nfaoa1
     , nfaoaAcceptingState = nfaoaAcceptingState nfaoa2 + nextState
@@ -270,7 +282,7 @@ regexToNFA (Repeat (0, Nothing) tm) = NFAOA
     , nfaoaTransition = \state c' ->
         if state == nextState
         then []
-        else nubSort (transitionF state c' ++
+        else (transitionF state c' ++
             if state == oldAcceptingS
                 then (if isNothing c' then [init, nextState] else [])
             else (if state == init
@@ -288,8 +300,8 @@ regexToNFA (Repeat (0, Nothing) tm) = NFAOA
 regexToNFA (Repeat (n, Nothing) tm) = regexToNFA $ Sequence (Repeat (0, Nothing) tm : replicate n tm)
 regexToNFA (Choice []) = regexToNFA EmptyLanguage
 regexToNFA (Choice xs) = NFAOA
-    { nfaoaStates = sort (0 : nextState : (foldl1 (++) (map nfaoaStates adjustedNFAOAs)))
-    , nfaoaAlphabet = nubSort (foldl1 (++) (map nfaoaAlphabet adjustedNFAOAs))
+    { nfaoaStates = 0 : nextState : (foldl1 (++) (map nfaoaStates adjustedNFAOAs))
+    , nfaoaAlphabet = foldl1 mergeSorted (map nfaoaAlphabet adjustedNFAOAs)
     , nfaoaTransition = \state c' ->
         if state == 0
             then (if c' == Nothing then init newStartingStates else [])
@@ -301,7 +313,7 @@ regexToNFA (Choice xs) = NFAOA
     , nfaoaAcceptingState = nextState
     }
   where
-    nfaoas = map regexToNFA xs
+    nfaoas = map (simplifyNFAOA . regexToNFA) xs
     lengths = map (toInteger . length . nfaoaStates) nfaoas
     newStartingStates = 1 : (map (+1) (scanl1 (+) lengths))
     adjustedNFAOAs = zipWith adjustNFAOA newStartingStates nfaoas
@@ -311,11 +323,13 @@ regexToNFA (Choice xs) = NFAOA
     acceptingStates = map nfaoaAcceptingState adjustedNFAOAs
 regexToNFA (Intersect []) = regexToNFA Epsilon
 regexToNFA (Intersect (r:rs)) =
-    simplifyNFAOA (productConstruction (regexToNFA r) (regexToNFA (Intersect rs)))
+    productConstruction (regexToNFA r) (regexToNFA (Intersect rs))
   where
+    productConstruction :: NFAOneAccepting Integer Char -> NFAOneAccepting Integer Char
+                        -> NFAOneAccepting Integer Char
     productConstruction nfa1 nfa2 = NFAOA
         { nfaoaStates = [flattenProduct (n, m) | n<-(nfaoaStates nfa1), m<-(nfaoaStates nfa2)]
-        , nfaoaAlphabet = nubSort (nfaoaAlphabet nfa1 ++ nfaoaAlphabet nfa2)
+        , nfaoaAlphabet = mergeSorted (nfaoaAlphabet nfa1) (nfaoaAlphabet nfa2)
         , nfaoaTransition = \state c' ->
             map flattenProduct (let (s1, s2) = unflattenProduct state in
                 case c' of
@@ -325,13 +339,8 @@ regexToNFA (Intersect (r:rs)) =
         , nfaoaInitialState = flattenProduct (nfaoaInitialState nfa1, nfaoaInitialState nfa2)
         , nfaoaAcceptingState = flattenProduct (nfaoaAcceptingState nfa1, nfaoaAcceptingState nfa2)
         }
-    flattenProduct (n, m) = ((2 * (n + 1) - 1) * (2 ^ m)) - 1
-    unflattenProduct x = unflattenProduct' (x + 1)
-    unflattenProduct' x = if even x
-                          then (let (n,m) = unflattenProduct' (div x 2) in (n,m+1))
-                          else ((div (x + 1) 2 )- 1, 0)
 regexToNFA (Complement newAlphabet tm) = NFAOA
-    { nfaoaStates = sort (newAccepting : (dfaStates cDFA))
+    { nfaoaStates = newAccepting : (dfaStates cDFA)
     , nfaoaAlphabet = dfaAlphabet cDFA
     , nfaoaTransition = \state c' ->
         if state == newAccepting
@@ -588,7 +597,7 @@ extendDFA newAlphabet dfa =
   where
     sinkState = maximum (dfaStates dfa) + 1
     newAlphabet' = newAlphabet \\ dfaAlphabet dfa
-    newStates = sort (sinkState : dfaStates dfa)
+    newStates = sinkState : (dfaStates dfa)
 
 complementDFA newAlphabet dfa = let dfa'= extendDFA newAlphabet dfa in DFA
     { dfaStates = dfaStates dfa'
@@ -645,10 +654,11 @@ optimizeRegex = converge optimizeRegex'
     optimizeRegex' (Literal c) = Literal c
     optimizeRegex' (Sequence []) = EmptyLanguage
     optimizeRegex' (Sequence [r]) = r
-    optimizeRegex' (Sequence rs) = if all (==Epsilon) rs then Epsilon else (
-                                       if EmptyLanguage `elem` rs
-                                       then EmptyLanguage
-                                       else Sequence (map optimizeRegex (filter (/=Epsilon) rs)))
+    optimizeRegex' (Sequence rs) =
+        if all (==Epsilon) rs then Epsilon else (
+            if EmptyLanguage `elem` rs
+            then EmptyLanguage
+            else Sequence (map optimizeRegex (filter (/=Epsilon) (flattenSequences rs))))
     optimizeRegex' (Choice []) = EmptyLanguage
     optimizeRegex' (Choice [r]) = r
     optimizeRegex' (Choice rs) = Choice $
@@ -662,6 +672,66 @@ optimizeRegex = converge optimizeRegex'
     flattenChoices [] = []
     flattenChoices ((Choice r):rs) = r ++ (flattenChoices rs)
     flattenChoices (r:rs) = r:(flattenChoices rs)
+    flattenSequences [] = []
+    flattenSequences ((Sequence r):rs) = r ++ (flattenSequences rs)
+    flattenSequences (r:rs) = r:(flattenSequences rs)
+
+optimizeRegexHarder :: Term -> Term
+optimizeRegexHarder = converge (\r' -> if languageIsEmpty r' then EmptyLanguage else optimizeRegexHarder' r')
+  where
+    optimizeRegexHarder' EmptyLanguage = EmptyLanguage
+    optimizeRegexHarder' Epsilon = Epsilon
+    optimizeRegexHarder' (Literal c) = Literal c
+    optimizeRegexHarder' (Sequence rs) = Sequence $ cleanEqualSequenceStar (map optimizeRegexHarder rs)
+    optimizeRegexHarder' (Choice []) = EmptyLanguage
+    optimizeRegexHarder' (Choice rs) = Choice $ cleanIncludedChoices $ map optimizeRegexHarder rs
+    optimizeRegexHarder' (Repeat (n,m) r) = Repeat (n,m) $ optimizeRegexHarder r
+    optimizeRegexHarder' r = r
+    cleanIncludedChoices [] = []
+    cleanIncludedChoices (r:rs) = if any (languageIsIncluded r) rs
+                                  then cleanIncludedChoices rs
+                                  else r:(cleanIncludedChoices rs)
+    cleanEqualSequenceStar [] = []
+    cleanEqualSequenceStar [r] = [r]
+    cleanEqualSequenceStar (r1@(Repeat (n, Nothing) r):r':rs) =
+        if languageIsEqualTrivially (Choice [r, Epsilon]) r'
+        then r1:(cleanEqualSequenceStar rs)
+        else (if languageIsEqualTrivially r r'
+              then (Repeat (n+1, Nothing) r):(cleanEqualSequenceStar rs)
+              else r1:(cleanEqualSequenceStar (r':rs)))
+    cleanEqualSequenceStar (r':r1@(Repeat (n, Nothing) r):rs) =
+        if languageIsEqualTrivially (Choice [r, Epsilon]) r'
+        then r1:(cleanEqualSequenceStar rs)
+        else (if languageIsEqualTrivially r r'
+              then (Repeat (n+1, Nothing) r):(cleanEqualSequenceStar rs)
+              else r':(cleanEqualSequenceStar (r1:rs)))
+    cleanEqualSequenceStar (r:rs) = r : (cleanEqualSequenceStar rs)
+
+
+languageIsEmpty :: Term -> Bool
+languageIsEmpty = null .
+                  (\x -> (dfaAcceptingStates x) \\ (nonReachableStates x)) .
+                  minimizeDFA .
+                  simplifyPowersetConstruction .
+                  determinizeNFA .
+                  relaxOneAccepting .
+                  regexToNFA
+  where
+    nonReachableStates dfa = (dfaStates dfa) \\ (reachableStates dfa)
+    reachableStates dfa = converge (\ss -> nubSort (ss ++ [dfaTransition dfa s a | s<-ss, a<-dfaAlphabet dfa])) [dfaInitialState dfa]
+
+languageIsIncluded :: Term -> Term -> Bool
+languageIsIncluded r1 r2 = languageIsEmpty $ Intersect [r1, Complement allChars r2]
+
+languageIsEqual :: Term -> Term -> Bool
+languageIsEqual r1 r2 = (r1 == r2) || ((languageIsIncluded r1 r2) && (languageIsIncluded r1 r2))
+
+languageIsEqualTrivially :: Term -> Term -> Bool
+languageIsEqualTrivially r1 r2 = r1 == r2
+
+--------------------------------------------------------------------------------
+-- Regex to Regex String -------------------------------------------------------
+--------------------------------------------------------------------------------
 
 applyToMaybes :: (a -> Maybe b) -> [a] -> Maybe [b]
 applyToMaybes f [] = Just []
@@ -671,7 +741,10 @@ applyToMaybes f (a:rest) = case f a of
 
 
 regexToRegexString :: Term -> String
-regexToRegexString x = fromMaybe "<impossible>" $ regexToRegexString' False x
+regexToRegexString x =
+    (\z -> if not (null z) && head z == '(' && last z == ')' then tail (init z) else z) $
+    fromMaybe "<impossible>" $
+    regexToRegexString' False x
   where
     regexToRegexString' _ EmptyLanguage = Nothing
     regexToRegexString' _ Epsilon = Just ""
@@ -682,21 +755,12 @@ regexToRegexString x = fromMaybe "<impossible>" $ regexToRegexString' False x
             (applyToMaybes (regexToRegexString' True) xs)
     regexToRegexString' _ (Repeat (0, Nothing) r) =
         fmap (\x -> x++"*") (regexToRegexString' True r)
+    regexToRegexString' _ (Repeat (1, Nothing) r) =
+        fmap (\x -> x++"+") (regexToRegexString' True r)
     regexToRegexString' needParens (Choice xs) =
         fmap
             (\x -> let y = intercalate "|" x in if needParens then "("++y++")" else y)
             (applyToMaybes (regexToRegexString' True) xs)
-
--- data Term = EmptyLanguage
---           | Epsilon
---           | Literal Char
---           | Sequence [Term]
---           | Repeat (Int, Maybe Int) Term
---           | Choice [Term]
---           | CharSet (Set Char)
---           | Intersect [Term]
---           | Complement [Char] Term
--- 
 
 --------------------------------------------------------------------------------
 -- Obtaining the language ------------------------------------------------------

@@ -4,7 +4,6 @@ module Args
     ) where
 
 import System.Console.GetOpt
-import Data.Maybe ( fromMaybe )
 import Data.Char ( isDigit )
 
 data Flag = Help
@@ -13,7 +12,7 @@ data Flag = Help
           | DoesntMatch String
           | ShowMatches (Maybe Integer)
           | ShowMismatches (Maybe Integer)
-          | Optimize
+          | Optimize (Maybe Integer)
     deriving (Eq, Show)
 
 optionalInteger :: Maybe String -> Maybe Integer
@@ -30,7 +29,7 @@ options =
     , Option ['x'] ["doesnt-match"]    (ReqArg DoesntMatch "REGEX")                      "tier."
     , Option []    ["show-matches"]    (OptArg (ShowMatches . optionalInteger) "INT")    "Outputs all strings that match the given regex."
     , Option []    ["show-mismatches"] (OptArg (ShowMismatches . optionalInteger) "INT") "Outputs all strings that don't match the given regex."
-    , Option ['O'] ["optimize"]        (NoArg Optimize)                                  "Optimizes the given regex."
+    , Option ['O'] ["optimize"]        (OptArg (Optimize . optionalInteger) "INT")       "Optimizes the given regex."
     ]
 
 parseOptions :: [String] -> Either String [Flag]
